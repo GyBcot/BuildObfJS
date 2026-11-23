@@ -1,0 +1,71 @@
+name: Obfuscate JS
+
+on:
+  workflow_dispatch:
+    inputs:
+      files_json:
+        description: 'JSON array of {name, content} files'
+        required: true
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  obfuscate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Restore node_modules
+        id: cache-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node_modules-${{ hashFiles('package.json') }}
+
+      - name: Install Dependencies
+        if: steps.cache-restore.outputs.cache-hit != 'true'
+        run: npm install --silent
+
+      - name: Save node_modules
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node_modules-${{ hashFiles('package.json') }}
+
+      - name: Write Input Files
+        run: |
+          mkdir -p input output
+          node -e "
+            const files = JSON.parse(process.env.FILES_JSON);
+            const fs = require('fs');
+            for (const f of files) {
+              fs.writeFileSync('input/' + f.name, f.content, 'utf8');
+            }
+          "
+        env:
+          FILES_JSON: ${{ github.event.inputs.files_json }}
+
+      - name: Obfuscate
+        run: node obf.js
+
+      - name: Zip Output
+        run: |
+          cd output
+          zip -r ../obfuscated.zip .
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: obfuscated
+          path: obfuscated.zip
+          retention-days: 1
+          
